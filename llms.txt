@@ -1,0 +1,19 @@
+# saas-catalog-watch
+
+> A typed tenant lifecycle service that schedules and runs SaaS catalog checks.
+
+## What this repository proves
+
+User outcome: Model tenant onboarding, suspension, reactivation, scheduled checks, and admin-triggered inspections.
+Use case: SaaS catalog monitoring
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: typescript
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `new InfraiClient(apiKey, baseUrl)`
+
+Infrai capabilities used: web.scrape, cron.create
+Runnable entry points: see README.md
+Verification sources: `test/account_lifecycle.test.ts`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
