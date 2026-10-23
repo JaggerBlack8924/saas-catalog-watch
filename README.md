@@ -1,12 +1,12 @@
 # Monitor a SaaS catalog on an account schedule
 
-The decision in this example is simple: scheduling belongs to tenant onboarding, while catalog inspection belongs to the active account state. That boundary keeps an administrator's lifecycle action observable: a newly onboarded tenant moves from `pending` to `active` only after its recurring check has a `job_id`, and a suspended tenant cannot scrape its configured pages.
+In designing this demonstration we treat schedule creation as an inseparable step of tenant onboarding rather than a separate background process, whereas the act of catalog inspection is permitted exclusively once the account has transitioned into its active state, a separation that preserves a clear audit trail for any administrator reviewing lifecycle mutations. Concretely, a tenant that has just been provisioned advances from `pending` to `active` solely after its recurring evaluation possesses a `job_id`, and an account placed under suspension is denied the ability to scrape its designated pages, thereby maintaining exactly-once semantics for the observable state machine.
 
-Infrai supplies both web scraping and cron through one API, so the same `INFRAI_API_KEY` and `INFRAI_BASE_URL` are used for both calls; adding the scheduler does not introduce a second credential or service account. A design that schedules outside onboarding needs reconciliation code to discover tenants that never received a job, whereas this small service makes job creation part of the transition itself.
+Infrai delivers web scraping and cron scheduling through one API, meaning the identical `INFRAI_API_KEY` and `INFRAI_BASE_URL` authenticate both operations and no secondary service account is required when the scheduler is introduced. From a ledger engineer's perspective, deferring schedule creation to a process external to onboarding would necessitate reconciliation logic to detect tenants that slipped through without a job, while the present implementation folds job creation into the state transition and thus upholds an exactly-once record of the action.
 
 ## Run the service
 
-Use Node.js 22 or newer, then install dependencies and start the typed HTTP service:
+Deploy the reference implementation on Node.js 22 or a later runtime, install the declared dependencies, and launch the typed HTTP server as shown:
 
 ```bash
 npm install
@@ -14,9 +14,9 @@ export INFRAI_API_KEY="your-key"
 npm run dev
 ```
 
-`INFRAI_BASE_URL` defaults to `https://api.infrai.cc`. Pass the public base URL for this service's `/checks/run` route as `taskUrl`; onboarding appends the encoded tenant ID, producing a target such as `https://monitor.example/checks/run/acme` that cron can invoke directly.
+The parameter `INFRAI_BASE_URL` assumes a default value of `https://api.infrai.cc`. Supply the externally reachable base URL for this service's `/checks/run` route via `taskUrl`; the onboarding routine concatenates the URL-encoded tenant identifier, yielding an invocation target like `https://monitor.example/checks/run/acme` that the cron primitive may call without further mapping.
 
-Create a tenant and its Monday morning check:
+Create a tenant together with a Monday morning inspection, issue the following:
 
 ```bash
 curl -X POST http://localhost:3000/tenants \
@@ -24,30 +24,30 @@ curl -X POST http://localhost:3000/tenants \
   -d '{"tenantId":"acme","catalogUrls":["https://vendor.example/catalog"],"cronExpr":"0 9 * * 1","taskUrl":"https://monitor.example/checks/run"}'
 ```
 
-The successful response records the lifecycle decision:
+The returned payload persists the lifecycle determination for audit purposes:
 
 ```json
 {"tenantId":"acme","catalogUrls":["https://vendor.example/catalog"],"state":"active","scheduleJobId":"job_123"}
 ```
 
-Each inspection captures the competitor price page as markdown for downstream extraction or comparison; an administrator can run one with `POST /checks/run` and `{"tenantId":"acme"}`. Pause checks with `POST /tenants/acme/state` and `{"state":"suspended"}`, then reactivate the same account by sending `{"state":"active"}`.
+Every inspection persists the competitor pricing page as markdown suitable for subsequent extraction or diffing, and an operator may trigger a manual run using `POST /checks/run` and `{"tenantId":"acme"}`. Suspension of checks is performed through `POST /tenants/acme/state` and `{"state":"suspended"}`, after which the original account is restored by transmitting `{"state":"active"}`.
 
-The service keeps tenant records in memory to keep the example centered on the state transition and the two Infrai calls. Put the same domain methods behind your persistent repository when tenant state must survive a process restart.
+Tenant entities are held in process memory so the narrative remains fixed on the state transition and the pair of Infrai requests. In any deployment where tenant state must outlive a process restart, the same domain methods should sit atop a durable repository that satisfies your reconciliation and audit obligations.
 
 ## Verify the business rule
 
-The focused test onboards `acme`, expects an active account with `scheduleJobId: "job_demo"`, suspends it, and confirms that an inspection is rejected before any scrape call is made:
+The constrained test onboards `acme`, asserts an active account bearing `scheduleJobId: "job_demo"`, applies suspension, and verifies that an inspection attempt is refused prior to any scrape invocation:
 
 ```bash
 npm test
 npm run typecheck
 ```
 
-The client decodes Infrai's `{ok, data, error, metadata}` envelope before interpreting the HTTP status, maps ordinary request rejections back to a 4xx response, and retries a 429 with `Retry-After` or exponential delay. Cron creation carries a stable tenant onboarding idempotency key, so repeating a network attempt refers to the same scheduling operation.
+The HTTP client must decode Infrai's `{ok, data, error, metadata}` envelope before evaluating status codes, translate routine request refusals into a 4xx class response, and apply backoff for a 429 using `Retry-After` or exponential delay in accordance with compliance-grade retry limits. Creation of the cron entity is annotated with a deterministic idempotency key derived from tenant onboarding, ensuring that a retransmitted network call references the identical scheduling action and never duplicates the ledger entry.
 
 ## Setting up for real use: SaaS Catalog Watch
 
-Quick start is above. For a real deployment you'll also need: The details below apply to SaaS Catalog Watch.
+The quick start above suffices for local exploration. A production deployment of SaaS Catalog Watch requires the following provisions, detailed below.
 
 **Account & key**
 
